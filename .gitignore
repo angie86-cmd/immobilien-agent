@@ -1,0 +1,29 @@
+# Python / local
+__pycache__/
+*.pyc
+.venv/
+.env
+
+# Data exports / sensitive files
+data/*.csv
+data/*.xlsx
+data/*.xls
+data/*.pdf
+data/*.html
+data/*.json
+
+# Real estate sensitive documents
+*.expose.pdf
+*expose*.pdf
+*Expose*.pdf
+*makler*.pdf
+*Makler*.pdf
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Logs
+*.log
