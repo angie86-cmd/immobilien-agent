@@ -209,6 +209,27 @@ def print_summary(audit: pd.DataFrame) -> None:
         print(review[columns].to_string(index=False))
 
 
+def run_liquidity_audit(
+    input_path: str | Path, output_path: str | Path | None = None
+) -> tuple[pd.DataFrame, Path]:
+    """Build and export an audit, returning its DataFrame and resolved path."""
+    input_path = Path(input_path).resolve()
+    if not input_path.is_file():
+        raise FileNotFoundError(f"ImmoMetrica input file not found: {input_path}")
+
+    resolved_output = (
+        Path(output_path).resolve()
+        if output_path is not None
+        else REPO_ROOT / "reports" / f"{input_path.stem}_liquidity_audit.csv"
+    )
+    source, _ = read_immometrica_csv(input_path)
+    dataset_label = detect_dataset_label(input_path, source)
+    audit = build_audit_dataframe(source, dataset_label)
+    resolved_output.parent.mkdir(parents=True, exist_ok=True)
+    audit.to_csv(resolved_output, sep=";", encoding="utf-8-sig", index=False)
+    return audit, resolved_output
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     args = parse_args(argv)
     input_path = args.input.resolve()
@@ -223,10 +244,7 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     source, import_report = read_immometrica_csv(input_path)
     dataset_label = detect_dataset_label(input_path, source)
-    audit = build_audit_dataframe(source, dataset_label)
-
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    audit.to_csv(output_path, sep=";", encoding="utf-8-sig", index=False)
+    audit, output_path = run_liquidity_audit(input_path, output_path)
 
     print("ImmoMetrica Liquidity Audit")
     print(f"Input path: {input_path}")
