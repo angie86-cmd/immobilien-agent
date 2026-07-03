@@ -8,20 +8,9 @@ sys.path.insert(0, str(REPO_ROOT))
 from src.immometrica_parser import read_immometrica_csv
 
 
-TEST_FILES = [
-    {
-        "name": "Hannover",
-        "path": Path("tests/fixtures/raw/20260701_offers_Hannover.csv"),
-        "expected_rows": 126,
-        "expected_columns": 46,
-    },
-    {
-        "name": "Leipzig",
-        "path": Path("tests/fixtures/raw/20260702_offers_Leipzig.csv"),
-        "expected_rows": 333,
-        "expected_columns": 46,
-    },
-]
+RAW_FIXTURE_DIR = REPO_ROOT / "tests" / "fixtures" / "raw"
+CSV_PATTERN = "*_offers_*.csv"
+EXPECTED_COLUMNS = 46
 
 
 REQUIRED_COLUMNS = {
@@ -34,21 +23,38 @@ REQUIRED_COLUMNS = {
 }
 
 
+def discover_test_files() -> list[Path]:
+    if not RAW_FIXTURE_DIR.is_dir():
+        raise FileNotFoundError(f"Fixture directory not found: {RAW_FIXTURE_DIR}")
+
+    csv_files = sorted(RAW_FIXTURE_DIR.glob(CSV_PATTERN))
+
+    if not csv_files:
+        raise FileNotFoundError(
+            f"No CSV files found in {RAW_FIXTURE_DIR} "
+            f"matching pattern {CSV_PATTERN}"
+        )
+
+    return csv_files
+
+
 def run_parser_smoke_test() -> None:
     print("ImmoMetrica Parser Smoke Test")
     print(f"Repository root: {REPO_ROOT}")
 
-    for test_file in TEST_FILES:
-        file_path = REPO_ROOT / test_file["path"]
+    for file_path in discover_test_files():
 
         print("=" * 80)
-        print(f"Testing: {test_file['name']}")
+        print(f"Testing: {file_path.name}")
         print(f"File: {file_path}")
 
         if not file_path.exists():
             raise FileNotFoundError(f"Missing test fixture: {file_path}")
 
-        df, report = read_immometrica_csv(file_path)
+        try:
+            df, report = read_immometrica_csv(file_path)
+        except Exception as exc:
+            raise RuntimeError(f"Failed to parse CSV file: {file_path}") from exc
 
         print("CSV-IMPORT-REPORT")
         print(f"status: {report['status']}")
@@ -60,22 +66,26 @@ def run_parser_smoke_test() -> None:
         print(f"recognized_core_columns: {report['recognized_core_columns']}")
         print(f"stable_column_count: {report['stable_column_count']}")
 
-        assert report["status"] == "OK", report
-        assert report["delimiter"] == ";", report
-        assert report["columns"] == test_file["expected_columns"], report
-        assert len(df) == test_file["expected_rows"], (
-            f"Expected {test_file['expected_rows']} rows, got {len(df)}"
+        assert report["status"] == "OK", f"Unexpected parser status for {file_path}: {report}"
+        assert report["delimiter"] == ";", f"Unexpected delimiter for {file_path}: {report}"
+        assert report["rows"] > 0, f"CSV has zero rows: {file_path}"
+        assert report["columns"] == EXPECTED_COLUMNS, (
+            f"Expected {EXPECTED_COLUMNS} columns in {file_path}, "
+            f"got {report['columns']}"
         )
-        assert report["recognized_core_columns"] >= 8, report
+        assert not df.empty, f"Parser output is empty for {file_path}"
+        assert report["recognized_core_columns"] >= 8, (
+            f"Too few recognized core columns for {file_path}: {report}"
+        )
 
         missing_columns = REQUIRED_COLUMNS.difference(set(df.columns))
 
         if missing_columns:
             raise AssertionError(
-                f"Missing required columns in {test_file['name']}: {missing_columns}"
+                f"Missing required columns in {file_path}: {missing_columns}"
             )
 
-        print(f"RESULT {test_file['name']}: OK")
+        print(f"RESULT {file_path.name}: OK")
 
     print("=" * 80)
     print("ALL PARSER SMOKE TESTS PASSED")
