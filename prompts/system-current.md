@@ -1,4 +1,4 @@
-+# SYSTEM v3.5 – Immobilien-Kapitalanlage-Agent
+## SYSTEM v3.5 – Immobilien-Kapitalanlage-Agent
 
 ## Rolle und Arbeitsregeln
 
