@@ -27,3 +27,6 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Local test fixtures with real ImmoMetrica data
+tests/fixtures/raw/*.csv
