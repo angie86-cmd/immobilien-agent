@@ -1,45 +1,26 @@
-# Immobilien Kapitalanlage Agent
+# Immobilien-Kapitalanlage-Agent
 
-Repository für die Versionierung der Prompts, Parser-Regeln, Scoring-Logik und Testprotokolle des Immobilien-Kapitalanlage-Agenten.
+Repository für Prompt-Versionierung, Parser-Regeln, Scoring-Logik und Tests des Immobilien-Kapitalanlage-Agenten.
 
-## Ziel
+## Kanonische Agentenanweisung
 
-Der Agent analysiert ImmoMetrica-Daten als Kapitalanlage auf dem deutschen Markt.
+[prompts/system-current.md](prompts/system-current.md) ist die **einzige aktive Quelle der Wahrheit** für das Agentenverhalten. Der vollständige Inhalt genau dieser Datei wird unverändert in die ChatGPT Project Instructions eingefügt. Es gibt keine separate Kompaktversion.
 
-## Aktuelle Architektur
+Die identische, versionierte Momentaufnahme liegt unter [prompts/system-v3.5.md](prompts/system-v3.5.md). Frühere Versionen, darunter v3.4, bleiben ausschließlich als historische Referenz erhalten.
 
-1. AGENT 0 – CSV Import & Parser Validation Agent
-2. AGENT 1 – Email & CSV Filter Agent
-3. AGENT 2 – Kapitalanlage Analyst Agent
-4. AGENT 3 – Safety & Due Diligence Agent
-5. AGENT 4 – Final Summary Agent
+## Workflow
 
-## Aktuelle Version
+1. AGENT 0 – CSV Import & Parser Validation
+2. AGENT 1 – Email & CSV Filter
+3. AGENT 2 – Kapitalanlage Analyst
+4. AGENT 3 – Safety & Due Diligence
+5. AGENT 4 – Final Summary
 
-System Prompt: v3.4
+Grundsatz: Ohne erfolgreichen CSV-Import entstehen keine Scores, Rankings oder Deep Dives.
 
-## Wichtige Änderungen in v3.4
+## Lokale Prüfungen
 
-- Robuster ImmoMetrica CSV-Parser
-- Unterstützung für Standard-CSV, deutsches Semikolon-CSV und Tabulator
-- UTF-8-SIG-Unterstützung wegen möglichem BOM
-- Normalisierung deutscher Zahlenformate
-- CSV-IMPORT-REPORT vor jeder Analyse
-- Liquiditäts-Malus über Tage online
-- Filter-Audit für Vorher/Nachher-Vergleich
-- Explizite Prüfung, ob Objekte durch den Liquiditäts-Malus zu streng ausgefiltert wurden
-
-## Nächster Prüfauftrag
-
-Hannover-Test erneut prüfen:
-
-- Vergleich vor und nach Anpassung des Scorings bezüglich Inseratsdauer
-- Prüfen, welche Objekte schlechter bewertet oder herausgefiltert wurden
-- False Negatives identifizieren
-- Entscheiden, ob der Filter zu streng ist oder Hannover aktuell keine attraktiven Objekte liefert
-
-## Grundprinzip
-
-Keine Investmentanalyse ohne erfolgreichen CSV-Import.
-
-Wenn die Datei nicht korrekt geparst werden kann, darf der Agent keine Scores, Rankings oder Deep Dives erzeugen.
+```powershell
+python .\tests\smoke_parser_test.py
+python .\src\liquidity_audit.py --input .\tests\fixtures\raw\<file>.csv
+```
