@@ -1,4 +1,4 @@
-"""Audit ImmoMetrica exports for false negatives caused by liquidity penalties."""
+"""Audit ImmoMetrica exports for liquidity and stale-listing risks."""
 
 import argparse
 from pathlib import Path
@@ -58,9 +58,18 @@ NUMERIC_COLUMNS = {
 }
 
 MANUAL_REVIEW_CATEGORIES = {
-    "möglicher False Negative: gute ROI, aber stark altes Inserat",
-    "Grenzfall: attraktive ROI, aber sehr lange online",
-    "stark prüfen: sehr lange online",
+    "Altinserat-Renditefalle: hohe ROI, aber sehr lange online",
+    "Altinserat-Risiko: sehr lange online",
+    "Stale Listing Due Diligence: alt, aber eventuell prüfbar",
+}
+
+MANUAL_REVIEW_REASONS = {
+    "Altinserat-Renditefalle: hohe ROI, aber sehr lange online": "stale_high_roi_risk",
+    "Altinserat-Risiko: sehr lange online": "stale_listing_risk",
+    "Stale Listing Due Diligence: alt, aber eventuell prüfbar": "stale_due_diligence",
+    "kein Liquiditätsrisiko": "no_liquidity_issue",
+    "Datenmangel: ROI fehlt": "roi_missing",
+    "berechtigt schwach: ROI unter Hard Cutoff": "weak_roi",
 }
 
 
@@ -137,12 +146,17 @@ def classify_audit(row: pd.Series) -> str:
         return "kein Liquiditätsrisiko"
     if roi < 4.0:
         return "berechtigt schwach: ROI unter Hard Cutoff"
-    if roi >= 6.0 and malus <= -15:
-        return "möglicher False Negative: gute ROI, aber stark altes Inserat"
-    if roi >= 5.0 and malus <= -30:
-        return "Grenzfall: attraktive ROI, aber sehr lange online"
     if days_online is not None and not pd.isna(days_online) and days_online > 180:
-        return "stark prüfen: sehr lange online"
+        if roi >= 6.0:
+            return "Altinserat-Renditefalle: hohe ROI, aber sehr lange online"
+        return "Altinserat-Risiko: sehr lange online"
+    if (
+        days_online is not None
+        and not pd.isna(days_online)
+        and 61 <= days_online <= 180
+        and roi >= 6.0
+    ):
+        return "Stale Listing Due Diligence: alt, aber eventuell prüfbar"
     return "prüfen"
 
 
@@ -176,6 +190,9 @@ def build_audit_dataframe(df: pd.DataFrame, dataset_label: str) -> pd.DataFrame:
     audit["manual_review_required"] = audit["audit_kategorie"].isin(
         MANUAL_REVIEW_CATEGORIES
     )
+    audit["manual_review_reason"] = audit["audit_kategorie"].map(
+        MANUAL_REVIEW_REASONS
+    )
     return audit
 
 
@@ -195,6 +212,11 @@ def print_summary(audit: pd.DataFrame) -> None:
 
     review = audit[audit["manual_review_required"]]
     print(f"\nObjects requiring manual review: {len(review)}")
+    print("Manual review required does not automatically mean false negative.")
+    print(
+        "For old listings, the exclusion may be justified but its risk reason "
+        "should be documented."
+    )
     if not review.empty:
         columns = [
             "ort",
@@ -205,6 +227,7 @@ def print_summary(audit: pd.DataFrame) -> None:
             "tage_online",
             "liquiditaets_malus",
             "audit_kategorie",
+            "manual_review_reason",
         ]
         print(review[columns].to_string(index=False))
 

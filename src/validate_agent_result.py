@@ -11,7 +11,10 @@ import pandas as pd
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
-from src.liquidity_audit import run_liquidity_audit  # noqa: E402
+from src.liquidity_audit import (  # noqa: E402
+    MANUAL_REVIEW_REASONS,
+    run_liquidity_audit,
+)
 
 
 AGENT_REQUIRED_COLUMNS = {
@@ -70,6 +73,7 @@ COMPARISON_COLUMNS = [
     "audit_kategorie",
     "audit_liquiditaets_malus",
     "manual_review_required",
+    "manual_review_reason",
     "validation_result",
 ]
 
@@ -175,7 +179,12 @@ def build_comparison(agent: pd.DataFrame, audit: pd.DataFrame) -> pd.DataFrame:
     validate_required_columns(audit, AUDIT_REQUIRED_COLUMNS, "liquidity audit")
 
     agent = agent[sorted(AGENT_REQUIRED_COLUMNS)].copy()
-    audit = audit[sorted(AUDIT_REQUIRED_COLUMNS)].copy()
+    audit = audit.copy()
+    if "manual_review_reason" not in audit.columns:
+        audit["manual_review_reason"] = audit["audit_kategorie"].map(
+            MANUAL_REVIEW_REASONS
+        )
+    audit = audit[sorted(AUDIT_REQUIRED_COLUMNS | {"manual_review_reason"})].copy()
     agent["agent_excluded"] = agent.apply(is_agent_exclusion, axis=1)
     audit["manual_review_required"] = audit["manual_review_required"].map(parse_bool)
 
@@ -230,17 +239,24 @@ def build_comparison(agent: pd.DataFrame, audit: pd.DataFrame) -> pd.DataFrame:
             return "MISSING_IN_AGENT_OUTPUT"
         if row["_merge"] == "left_only":
             return "MISSING_IN_LIQUIDITY_AUDIT"
+        category = str(row.get("audit_kategorie", "") or "")
         if bool(row["agent_excluded"]):
-            return (
-                "POTENTIAL_FALSE_NEGATIVE"
-                if bool(row["manual_review_required"])
-                else "LIKELY_VALID_EXCLUSION"
-            )
-        return (
-            "NEEDS_DUE_DILIGENCE"
-            if bool(row["manual_review_required"])
-            else "OK"
-        )
+            if category.startswith("Altinserat-Renditefalle"):
+                return "EXCLUSION_SUPPORTED_BY_STALE_HIGH_ROI_RISK"
+            if category.startswith("Altinserat-Risiko"):
+                return "EXCLUSION_SUPPORTED_BY_STALE_LISTING_RISK"
+            if category.startswith("Stale Listing Due Diligence"):
+                return "NEEDS_MANUAL_CONFIRMATION"
+            if category == "möglicher False Negative":
+                return "POTENTIAL_FALSE_NEGATIVE"
+            if not bool(row["manual_review_required"]):
+                return "LIKELY_VALID_EXCLUSION"
+            return "NEEDS_MANUAL_CONFIRMATION"
+        if category.startswith("Altinserat"):
+            return "NEEDS_DUE_DILIGENCE_STALE_LISTING"
+        if bool(row["manual_review_required"]):
+            return "NEEDS_DUE_DILIGENCE"
+        return "OK"
 
     merged["validation_result"] = merged.apply(classify, axis=1)
     return merged[COMPARISON_COLUMNS]
@@ -309,8 +325,27 @@ def write_markdown_summary(
     false_negatives = comparison[
         comparison["validation_result"] == "POTENTIAL_FALSE_NEGATIVE"
     ]
+    stale_supported = comparison[
+        comparison["validation_result"].isin(
+            {
+                "EXCLUSION_SUPPORTED_BY_STALE_LISTING_RISK",
+                "EXCLUSION_SUPPORTED_BY_STALE_HIGH_ROI_RISK",
+            }
+        )
+    ]
+    stale_high_roi = comparison[
+        comparison["audit_kategorie"].fillna("").str.startswith(
+            "Altinserat-Renditefalle"
+        )
+    ]
     due_diligence = comparison[
-        comparison["validation_result"] == "NEEDS_DUE_DILIGENCE"
+        comparison["validation_result"].isin(
+            {
+                "NEEDS_DUE_DILIGENCE",
+                "NEEDS_DUE_DILIGENCE_STALE_LISTING",
+                "NEEDS_MANUAL_CONFIRMATION",
+            }
+        )
     ]
     content = f"""# Agent Validation Summary
 
@@ -328,16 +363,29 @@ def write_markdown_summary(
 
 {_markdown_table(false_negatives, detail_columns)}
 
+## Exclusions supported by stale listing risk
+
+{_markdown_table(stale_supported, detail_columns)}
+
+## Stale high-ROI traps
+
+{_markdown_table(stale_high_roi, detail_columns)}
+
 ## Needs Due Diligence
 
 {_markdown_table(due_diligence, detail_columns)}
 
 ## Interpretation
 
-- **POTENTIAL_FALSE_NEGATIVE**: Der Agent hat ein Objekt ausgeschlossen, das laut Liquiditäts-Audit nicht ungeprüft verworfen werden sollte.
-- **NEEDS_DUE_DILIGENCE**: Der Agent hat das Objekt nicht ausgeschlossen, aber das Audit erkennt ein Alters-/Liquiditätsrisiko.
+- **POTENTIAL_FALSE_NEGATIVE**: Der Agent könnte zu aggressiv gefiltert haben.
+- **EXCLUSION_SUPPORTED_BY_STALE_HIGH_ROI_RISK**: Der Ausschluss ist wahrscheinlich nachvollziehbar, weil alte Angebote mit hoher ROI oft ernste verdeckte Risiken haben.
+- **EXCLUSION_SUPPORTED_BY_STALE_LISTING_RISK**: Der Ausschluss wird durch das Altinserat-Risiko gestützt.
+- **NEEDS_DUE_DILIGENCE_STALE_LISTING**: Das Objekt ist nicht automatisch ausgeschlossen, seine lange Inseratsdauer verlangt aber starke Vorsicht.
+- **NEEDS_DUE_DILIGENCE / NEEDS_MANUAL_CONFIRMATION**: Risiko oder Ausschlussgrund muss manuell bestätigt werden.
 - **LIKELY_VALID_EXCLUSION**: Der Ausschluss ist wahrscheinlich mit dem Liquiditäts-Audit konsistent.
 - **OK**: Es besteht kein Konflikt zwischen Agentenentscheidung und Audit.
+
+`manual_review_required` ist ein Prüfhinweis, keine Aussage, dass der Agent falsch lag.
 """
     summary_path.parent.mkdir(parents=True, exist_ok=True)
     summary_path.write_text(content, encoding="utf-8")
@@ -371,10 +419,11 @@ def print_console_summary(
         comparison["validation_result"] == "POTENTIAL_FALSE_NEGATIVE"
     ]
     due_diligence = comparison[
-        comparison["validation_result"] == "NEEDS_DUE_DILIGENCE"
+        comparison["validation_result"].str.startswith("NEEDS_")
     ]
     print(f"\nPOTENTIAL_FALSE_NEGATIVE: {len(potential)}")
-    print(f"NEEDS_DUE_DILIGENCE: {len(due_diligence)}")
+    print(f"Needs due diligence/manual confirmation: {len(due_diligence)}")
+    print("Manual review required is a review flag, not a statement that the agent was wrong.")
     if not potential.empty:
         columns = [
             "ort",

@@ -1,5 +1,14 @@
 # Changelog
 
+## v3.6
+
+Datum: 2026-07-03
+
+- Zielstadt-Logik durch Zielmarkt-/Zielregion-Logik ersetzt; Hannover-Batches schließen Region Hannover und umliegende Kommunen ein.
+- Sehr alte Angebote mit attraktiver ROI als Altinserat-Risiko beziehungsweise Altinserat-Renditefalle statt automatisch als möglichen False Negative eingeordnet.
+- Filter-Audit um getrennte Kategorien für stale listing risk, stale high-ROI traps, Due Diligence und berechtigte Ausschlüsse erweitert.
+- Bedeutung von `manual_review_required` als Prüfhinweis statt Fehlerurteil präzisiert.
+
 ## v3.5
 
 Datum: 2026-07-03
